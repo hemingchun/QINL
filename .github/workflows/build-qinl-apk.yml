@@ -1,0 +1,107 @@
+name: Build QinL Mirror Performance APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-qinl-apk.yml'
+      - 'qinl_mirror_perf.patch.gz.b64'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout QINL build repo
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 36 and NDK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+
+      - name: Download official DiPlay 0.2.13
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 -o /tmp/diplay-src.zip https://github.com/shihabal3amri/DiPlay/archive/refs/tags/v0.2.13.zip
+          curl -L --fail --retry 3 -o /tmp/diplay.apk https://github.com/shihabal3amri/DiPlay/releases/download/v0.2.13/DiPlay-0.2.13.apk
+          unzip -q /tmp/diplay-src.zip -d /tmp
+          mv /tmp/DiPlay-0.2.13 "$GITHUB_WORKSPACE/DiPlay"
+
+      - name: Apply Qin L mirror-performance patch
+        shell: bash
+        run: |
+          set -euxo pipefail
+          base64 -d qinl_mirror_perf.patch.gz.b64 | gunzip > /tmp/qinl.patch
+          cd "$GITHUB_WORKSPACE/DiPlay"
+          patch -p2 < /tmp/qinl.patch
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('mobile/build.gradle.kts')
+          s = p.read_text()
+          marker = '        create("perf") {'
+          i = s.find(marker)
+          if i < 0:
+              raise SystemExit('perf build type not found')
+          block_end = s.find('        }', i)
+          block = s[i:block_end]
+          if 'matchingFallbacks' not in block:
+              nl = s.find('\n', i) + 1
+              s = s[:nl] + '            matchingFallbacks += listOf("release")\n' + s[nl:]
+          p.write_text(s)
+
+          for f in ['mobile/build.gradle.kts', 'common/build.gradle.kts']:
+              p = Path(f)
+              s = p.read_text().replace('release(37)', 'release(36)').replace('targetSdk = 37', 'targetSdk = 36')
+              p.write_text(s)
+
+          p = Path('shared/build.gradle')
+          s = p.read_text().replace('compileSdk = 37', 'compileSdk = 36').replace('targetSdk = 37', 'targetSdk = 36')
+          p.write_text(s)
+          PY
+
+      - name: Provision official CarPlay authentication assets
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/auth/offline-mfi"
+          unzip -p /tmp/diplay.apk assets/offline-mfi/identity.pk8 > "$GITHUB_WORKSPACE/auth/offline-mfi/identity.pk8"
+          unzip -p /tmp/diplay.apk assets/offline-mfi/certificate.p7b > "$GITHUB_WORKSPACE/auth/offline-mfi/certificate.p7b"
+          test -s "$GITHUB_WORKSPACE/auth/offline-mfi/identity.pk8"
+          test -s "$GITHUB_WORKSPACE/auth/offline-mfi/certificate.p7b"
+
+      - name: Build APK
+        shell: bash
+        env:
+          DIPLAY_AUTH_ASSETS_DIR: ${{ github.workspace }}/auth
+        run: |
+          set -euxo pipefail
+          cd "$GITHUB_WORKSPACE/DiPlay"
+          chmod +x gradlew
+          ./gradlew :mobile:assembleStandalonePerf --stacktrace --no-daemon
+          find mobile/build/outputs/apk -type f -name '*.apk' -ls
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiPlay-QinL-MirrorPerf
+          path: DiPlay/mobile/build/outputs/apk/**/*.apk
+          if-no-files-found: error
