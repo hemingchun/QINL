@@ -57,15 +57,23 @@ jobs:
 
           p = Path('mobile/build.gradle.kts')
           s = p.read_text()
-          marker = '        create("perf") {'
-          i = s.find(marker)
-          if i < 0:
-              raise SystemExit('perf build type not found')
-          block_end = s.find('        }', i)
-          block = s[i:block_end]
-          if 'matchingFallbacks' not in block:
-              nl = s.find('\n', i) + 1
-              s = s[:nl] + '            matchingFallbacks += listOf("release")\n' + s[nl:]
+          old = '''        release {
+            optimization {
+                enable = false
+            }
+            signingConfig = signingConfigs.getByName("release")
+        }'''
+          new = '''        release {
+            optimization {
+                enable = false
+            }
+            applicationIdSuffix = ".mirrorperf"
+            versionNameSuffix = "-qinl-mirror-perf"
+            signingConfig = signingConfigs.getByName("debug")
+        }'''
+          if old not in s:
+              raise SystemExit('release build type block not found')
+          s = s.replace(old, new, 1)
           p.write_text(s)
 
           for f in ['mobile/build.gradle.kts', 'common/build.gradle.kts']:
@@ -96,7 +104,7 @@ jobs:
           set -euxo pipefail
           cd "$GITHUB_WORKSPACE/DiPlay"
           chmod +x gradlew
-          ./gradlew :mobile:assembleStandalonePerf --stacktrace --no-daemon
+          ./gradlew :mobile:assembleRelease --stacktrace --no-daemon
           find mobile/build/outputs/apk -type f -name '*.apk' -ls
 
       - name: Upload APK
