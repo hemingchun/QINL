@@ -5,8 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - '.github/workflows/build-qinl-apk.yml'
-      - 'qinl_mirror_perf.patch.gz.b64'
+      - 'trigger.txt'
 
 jobs:
   build:
@@ -51,36 +50,21 @@ jobs:
           base64 -d qinl_mirror_perf.patch.gz.b64 | gunzip > /tmp/qinl.patch
           cd "$GITHUB_WORKSPACE/DiPlay"
           patch -p2 < /tmp/qinl.patch
-
           python3 - <<'PY'
           from pathlib import Path
-
           p = Path('mobile/build.gradle.kts')
           s = p.read_text()
-          old = '''        release {
-            optimization {
-                enable = false
-            }
-            signingConfig = signingConfigs.getByName("release")
-        }'''
-          new = '''        release {
-            optimization {
-                enable = false
-            }
-            applicationIdSuffix = ".mirrorperf"
-            versionNameSuffix = "-qinl-mirror-perf"
-            signingConfig = signingConfigs.getByName("debug")
-        }'''
-          if old not in s:
-              raise SystemExit('release build type block not found')
-          s = s.replace(old, new, 1)
+          perf = '        create("perf") {\n            initWith(getByName("release"))\n            applicationIdSuffix = ".mirrorperf"\n            versionNameSuffix = "-qinl-mirror-perf"\n            signingConfig = signingConfigs.getByName("debug")\n        }\n'
+          s = s.replace(perf, '')
+          perf_task = 'tasks.register("assembleStandalonePerf") {\n    group = "build"\n    description = "Build the non-debuggable Qin L mirror performance APK with explicit authentication."\n    dependsOn(verifyStandaloneAuthentication, "assemblePerf")\n}\n'
+          s = s.replace(perf_task, '')
+          s = s.replace('        release {\n', '        release {\n            applicationIdSuffix = ".mirrorperf"\n            versionNameSuffix = "-qinl-mirror-perf"\n', 1)
+          s = s.replace('            signingConfig = signingConfigs.getByName("release")', '            signingConfig = signingConfigs.getByName("debug")', 1)
+          s = s.replace('release(37)', 'release(36)').replace('targetSdk = 37', 'targetSdk = 36')
           p.write_text(s)
-
-          for f in ['mobile/build.gradle.kts', 'common/build.gradle.kts']:
-              p = Path(f)
-              s = p.read_text().replace('release(37)', 'release(36)').replace('targetSdk = 37', 'targetSdk = 36')
-              p.write_text(s)
-
+          p = Path('common/build.gradle.kts')
+          s = p.read_text().replace('release(37)', 'release(36)').replace('targetSdk = 37', 'targetSdk = 36')
+          p.write_text(s)
           p = Path('shared/build.gradle')
           s = p.read_text().replace('compileSdk = 37', 'compileSdk = 36').replace('targetSdk = 37', 'targetSdk = 36')
           p.write_text(s)
@@ -104,7 +88,7 @@ jobs:
           set -euxo pipefail
           cd "$GITHUB_WORKSPACE/DiPlay"
           chmod +x gradlew
-          ./gradlew :mobile:assembleRelease --stacktrace --no-daemon
+          ./gradlew :mobile:verifyStandaloneAuthentication :mobile:assembleRelease --stacktrace --no-daemon
           find mobile/build/outputs/apk -type f -name '*.apk' -ls
 
       - name: Upload APK
