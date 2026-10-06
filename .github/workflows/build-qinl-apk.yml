@@ -27,12 +27,12 @@ jobs:
         with:
           packages: platform-tools
 
-      - name: Install Android SDK 36 and NDK
+      - name: Install Android SDK 37 and NDK
         shell: bash
         run: |
           set -euxo pipefail
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+          sdkmanager "platforms;android-37" "build-tools;36.0.0" "ndk;28.2.13676358"
 
       - name: Download official DiPlay 0.2.13
         shell: bash
@@ -60,13 +60,13 @@ jobs:
           s = s.replace(perf_task, '')
           s = s.replace('        release {\n', '        release {\n            applicationIdSuffix = ".mirrorperf"\n            versionNameSuffix = "-qinl-mirror-perf"\n', 1)
           s = s.replace('            signingConfig = signingConfigs.getByName("release")', '            signingConfig = signingConfigs.getByName("debug")', 1)
-          s = s.replace('release(37)', 'release(36)').replace('targetSdk = 37', 'targetSdk = 36')
+          s = s.replace('targetSdk = 37', 'targetSdk = 36')
           p.write_text(s)
           p = Path('common/build.gradle.kts')
-          s = p.read_text().replace('release(37)', 'release(36)').replace('targetSdk = 37', 'targetSdk = 36')
+          s = p.read_text().replace('targetSdk = 37', 'targetSdk = 36')
           p.write_text(s)
           p = Path('shared/build.gradle')
-          s = p.read_text().replace('compileSdk = 37', 'compileSdk = 36').replace('targetSdk = 37', 'targetSdk = 36')
+          s = p.read_text().replace('targetSdk = 37', 'targetSdk = 36')
           p.write_text(s)
           PY
 
